@@ -1,0 +1,167 @@
+---
+# Install packages needed for backup.
+- name: rear | install packages
+  yum:
+    name:
+    - rear
+    - syslinux
+    - genisoimage
+    - rsync
+    - grub2-efi-x64-modules
+    state: present
+
+# Generate config from template and copy to target host(s).
+- name: rear | copy config
+  template:
+    src: etc_rear_site.conf.j2
+    dest: /etc/rear/site.conf
+
+# Create mappings directory, which does not present in default rear installation
+# If rear_mappings variable is set to false, then this task is ignored,
+# and folder will not be created.
+- name: rear | create mappings directory
+  file:
+    path: /etc/rear/mappings
+    state: directory
+  when: rear_mappings
+
+# Create mappings file, to define ip configuration and routes
+# which will be present in recovery environment.
+# If rear_mappings variable is set to false, then this task is ignored,
+# and configurations will be the same as they are on host.
+- name: rear | create mappings
+  blockinfile:
+    path: /etc/rear/mappings/{{ item.file }}
+    block: "{{ item.content }}"
+    create: yes
+  with_items:
+  - file: ip_addresses
+    content: "{{ rear_mappings_dev }} {{ rear_mappings_ip }}/{{ rear_mappings_subnet_mask }}"
+  - file: routes
+    content: "default {{ rear_mappings_gateway }} {{ rear_mappings_dev }}"
+  when: rear_mappings
+
+# This directories are needed for separation of
+# ssh keys for different projects and their environments.
+- name: rear | create inventory-specific directories
+  file:
+    path: "files/projects/{{ project_name }}/{{ environment }}/ssh-keys"
+    state: directory
+    owner: "{{ lookup('env','USER') }}"
+    group: "{{ lookup('env','USER') }}"
+    recurse: true
+  delegate_to: localhost
+  become: false
+
+# Create ssh keypair locally to authenticate on backup host.
+- name: rear | create ssh keypair
+  openssh_keypair:
+    path: "files/projects/{{ project_name }}/{{ environment }}/ssh-keys/{{ project_name }}-{{ environment }}"
+    owner: "{{ lookup('env','USER') }}"
+    group: "{{ lookup('env','USER') }}"
+  delegate_to: localhost
+  become: false
+
+# Check if .ssh directory exists on remote.
+- name: rear | check .ssh directory
+  stat:
+    path: $HOME/.ssh
+  register: stat_ssh_dir
+
+# If .ssh directory exists on remote, acknowledge user.
+- name: rear | acknowledge user if ssh directory already exists
+  debug:
+    msg: ".ssh directory already exists, skipping next task..."
+  when: stat_ssh_dir.stat.exists
+
+# Create .ssh directory on remote.
+- name: rear | create .ssh directory if not exists
+  file:
+    path: $HOME/.ssh
+    state: directory
+    mode: 0700
+  when: stat_ssh_dir.stat.exists == false
+
+# Check if ssh keypair exists on remote.
+- name: rear | check ssh keypair
+  stat:
+    path: $HOME/.ssh/{{ item }}
+  with_items: 
+  - "{{ project_name }}-{{ environment }}"
+  - "{{ project_name }}-{{ environment }}.pub"
+  register: stat_keypair
+
+# If ssh keypair exists on remote, acknowledge user.
+- name: rear | acknowledge user if ssh keypair already exists
+  fail:
+    msg: "ssh keypair already exists, aborting... Please review existing files and resume manually!"
+  with_items: 
+  - "{{ project_name }}-{{ environment }}"
+  - "{{ project_name }}-{{ environment }}.pub"
+  when: stat_keypair.results.0.stat.exists or stat_keypair.results.1.stat.exists
+
+# Copy ssh keypair to remote.
+- name: rear | copy ssh keypair
+  copy:
+    src: "files/projects/{{ project_name }}/{{ environment }}/ssh-keys/{{ item.file }}"
+    dest: $HOME/.ssh/{{ item.file }}
+    mode: "{{ item.mode }}"
+  with_items:
+  - file: "{{ project_name }}-{{ environment }}"
+    mode: '0600'
+  - file: "{{ project_name }}-{{ environment }}.pub"
+    mode: '0640'
+  when: stat_keypair.results.0.stat.exists == false or stat_keypair.1.stat.exists == false
+
+# Check if ssh config exists on remote.
+- name: rear | check ssh config
+  stat:
+    path: $HOME/.ssh/config
+  register: stat_ssh_config
+
+# Add lines for backup host to existing ssh config.
+- name: rear | add lines to existing ssh config
+  blockinfile:
+    path: $HOME/.ssh/config
+    block: |
+      Host {{ rear_rsync_remote_host }}
+        User {{ rear_rsync_remote_user }}
+        IdentityFile ~/.ssh/{{ project_name }}-{{ environment }}
+    backup: yes
+  when: stat_ssh_config.stat.exists
+
+# Create ssh config with lines for backup host.
+- name: rear | create ssh config and add lines
+  blockinfile:
+    path: $HOME/.ssh/config
+    block: |
+      Host {{ rear_rsync_remote_host }}
+        User {{ rear_rsync_remote_user }}
+        IdentityFile ~/.ssh/{{ project_name }}-{{ environment }}
+    create: yes
+    mode: 0600
+  when: stat_ssh_config.stat.exists == false
+
+# Add ssh-rsa key of backup host to known_hosts file.
+- name: rear | add backup host key to known_hosts
+  known_hosts:
+    name: "{{ rear_rsync_remote_host }}"
+    key: "{{ rear_rsync_remote_host }} ssh-rsa {{ hostvars[item].ansible_ssh_host_key_rsa_public }}"
+  with_items: "{{ groups.backuphosts }}"
+
+# Stop important services before backup and remove them from startup
+# if needed. If migration is planned, then Don't forget to enable them
+# manually on new hosts after rear recovery.
+- name: rear | stop and disable important services
+  systemd:
+    daemon_reload: no
+    name: "{{ item }}"
+    enabled: "{{ rear_disable_services }}"
+    state: stopped
+  with_items: "{{ rear_services_to_stop }}"
+  when: rear_services_to_stop is defined
+
+# Create rescue image and backup and transfer them to backup host.
+- name: rear | create and transfer rescue .iso and backup files to the remote host
+  shell: /sbin/rear mkbackup {{ rear_mkbackup_args }}
+  tags: never

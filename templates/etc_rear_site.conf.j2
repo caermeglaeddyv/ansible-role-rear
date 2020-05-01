@@ -1,0 +1,17 @@
+# Default is to create Relax-and-Recover rescue media as ISO image
+# set OUTPUT to change that
+# set BACKUP to activate an automated (backup and) restore of your data
+# Possible configuration values can be found in /usr/share/rear/conf/default.conf
+#
+# This file (local.conf) is intended for manual configuration. For configuration
+# through packages and other automated means we recommend creating a new
+# file named site.conf next to this file and to leave the local.conf as it is. 
+# Our packages will never ship with a site.conf.
+OUTPUT=ISO
+BACKUP=RSYNC
+BACKUP_URL="rsync://{{ rear_rsync_remote_user }}@{{ rear_rsync_remote_host }}{{ rear_rsync_remote_path }}"
+BACKUP_PROG_EXCLUDE=( "${BACKUP_PROG_EXCLUDE[@]}" {{ rear_files_to_exclude }} )
+EXCLUDE_BACKUP=( {{ rear_files_to_exclude }} )
+SSH_FILES='yes'
+SSH_UNPROTECTED_PRIVATE_KEYS='yes'
+USE_STATIC_NETWORKING=1

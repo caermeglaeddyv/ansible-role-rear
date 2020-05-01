@@ -1,0 +1,19 @@
+---
+# Create directory for rear backups.
+- name: rear | create directory to store files needed for restore
+  file:
+    path: "{{ rear_rsync_remote_path }}"
+    state: directory
+
+# Install packages needed for backup.
+- name: rear | install prerequisites
+  yum:
+    name: rsync
+    state: present
+
+# Add public key of hosts being backed up to ssh authorized_keys file.
+- name: rear | authorize public key on backup host
+  authorized_key:
+    user: "{{ rear_rsync_remote_user }}"
+    key: "{{ lookup('file', 'files/projects/{{ project_name }}/{{ environment }}/ssh-keys/{{ project_name }}-{{ environment }}.pub') }}"
+    state: present
