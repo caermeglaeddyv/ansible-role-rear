@@ -15,5 +15,5 @@
 - name: rear | authorize public key on backup host
   authorized_key:
     user: "{{ rear_rsync_remote_user }}"
-    key: "{{ lookup('file', 'files/projects/{{ project_name }}/{{ environment }}/ssh-keys/{{ project_name }}-{{ environment }}.pub') }}"
+    key: "{{ lookup('file', 'files/projects/{{ project_name }}/{{ project_environment }}/ssh-keys/{{ project_name }}-{{ project_environment }}.pub') }}"
     state: present

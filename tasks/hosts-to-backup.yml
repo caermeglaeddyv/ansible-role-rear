@@ -45,7 +45,7 @@
 # ssh keys for different projects and their environments.
 - name: rear | create inventory-specific directories
   file:
-    path: "files/projects/{{ project_name }}/{{ environment }}/ssh-keys"
+    path: "files/projects/{{ project_name }}/{{ project_environment }}/ssh-keys"
     state: directory
     owner: "{{ lookup('env','USER') }}"
     group: "{{ lookup('env','USER') }}"
@@ -56,11 +56,13 @@
 # Create ssh keypair locally to authenticate on backup host.
 - name: rear | create ssh keypair
   openssh_keypair:
-    path: "files/projects/{{ project_name }}/{{ environment }}/ssh-keys/{{ project_name }}-{{ environment }}"
+    path: "files/projects/{{ project_name }}/{{ project_environment }}/ssh-keys/{{ project_name }}-{{ project_environment }}"
     owner: "{{ lookup('env','USER') }}"
     group: "{{ lookup('env','USER') }}"
   delegate_to: localhost
   become: false
+  tags:
+  - never
 
 # Check if .ssh directory exists on remote.
 - name: rear | check .ssh directory
@@ -80,38 +82,38 @@
     path: $HOME/.ssh
     state: directory
     mode: 0700
-  when: stat_ssh_dir.stat.exists == false
+  when: not stat_ssh_dir.stat.exists
 
 # Check if ssh keypair exists on remote.
 - name: rear | check ssh keypair
   stat:
     path: $HOME/.ssh/{{ item }}
-  with_items: 
-  - "{{ project_name }}-{{ environment }}"
-  - "{{ project_name }}-{{ environment }}.pub"
+  with_items:
+  - "{{ project_name }}-{{ project_environment }}"
+  - "{{ project_name }}-{{ project_environment }}.pub"
   register: stat_keypair
 
 # If ssh keypair exists on remote, acknowledge user.
 - name: rear | acknowledge user if ssh keypair already exists
   fail:
     msg: "ssh keypair already exists, aborting... Please review existing files and resume manually!"
-  with_items: 
-  - "{{ project_name }}-{{ environment }}"
-  - "{{ project_name }}-{{ environment }}.pub"
+  with_items:
+  - "{{ project_name }}-{{ project_environment }}"
+  - "{{ project_name }}-{{ project_environment }}.pub"
   when: stat_keypair.results.0.stat.exists or stat_keypair.results.1.stat.exists
 
 # Copy ssh keypair to remote.
 - name: rear | copy ssh keypair
   copy:
-    src: "files/projects/{{ project_name }}/{{ environment }}/ssh-keys/{{ item.file }}"
+    src: "files/projects/{{ project_name }}/{{ project_environment }}/ssh-keys/{{ item.file }}"
     dest: $HOME/.ssh/{{ item.file }}
     mode: "{{ item.mode }}"
   with_items:
-  - file: "{{ project_name }}-{{ environment }}"
+  - file: "{{ project_name }}-{{ project_environment }}"
     mode: '0600'
-  - file: "{{ project_name }}-{{ environment }}.pub"
+  - file: "{{ project_name }}-{{ project_environment }}.pub"
     mode: '0640'
-  when: stat_keypair.results.0.stat.exists == false or stat_keypair.1.stat.exists == false
+  when: not stat_keypair.results.0.stat.exists or not stat_keypair.1.stat.exists
 
 # Check if ssh config exists on remote.
 - name: rear | check ssh config
@@ -126,7 +128,7 @@
     block: |
       Host {{ rear_rsync_remote_host }}
         User {{ rear_rsync_remote_user }}
-        IdentityFile ~/.ssh/{{ project_name }}-{{ environment }}
+        IdentityFile ~/.ssh/{{ project_name }}-{{ project_environment }}
     backup: yes
   when: stat_ssh_config.stat.exists
 
@@ -137,10 +139,10 @@
     block: |
       Host {{ rear_rsync_remote_host }}
         User {{ rear_rsync_remote_user }}
-        IdentityFile ~/.ssh/{{ project_name }}-{{ environment }}
+        IdentityFile ~/.ssh/{{ project_name }}-{{ project_environment }}
     create: yes
     mode: 0600
-  when: stat_ssh_config.stat.exists == false
+  when: not stat_ssh_config.stat.exists
 
 # Add ssh-rsa key of backup host to known_hosts file.
 - name: rear | add backup host key to known_hosts
@@ -159,9 +161,12 @@
     enabled: "{{ rear_disable_services }}"
     state: stopped
   with_items: "{{ rear_services_to_stop }}"
-  when: rear_services_to_stop is defined
+  when: rear_services_to_stop | bool
+  tags:
+  - never
 
 # Create rescue image and backup and transfer them to backup host.
 - name: rear | create and transfer rescue .iso and backup files to the remote host
-  shell: /sbin/rear mkbackup {{ rear_mkbackup_args }}
-  tags: never
+  command: /sbin/rear mkbackup {{ rear_mkbackup_args }}
+  tags:
+  - never

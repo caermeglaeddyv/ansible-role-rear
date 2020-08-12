@@ -46,7 +46,7 @@ project_name: test
 # Environment name needed to logically separate group of hosts that belongs
 # to single environment of the project ("development", "staging", "production" etc),
 # used as directory name to create and store ssh keypairs in:
-environment: development
+project_environment: development
 
 
 # Arguments passed to 'rear mkbackup command' before starting

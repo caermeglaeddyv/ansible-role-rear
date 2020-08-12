@@ -1,16 +1,18 @@
 ---
-# tasks file for rear
-
-
+### tasks file for rear
 # Disable selinux for test purposes, don't do this on production systems.
 - name: disable selinux
   selinux:
     state: disabled
+  when: ansible_selinux.status != 'disabled'
 
 # Reboot OS so SELinux changes can be applied.
 - name: reboot all machines
   reboot:
     msg: "Rebooting machines, please wait..."
+  when: ansible_selinux.status != 'disabled'
+  tags:
+  - never
 
 # Perform tasks on ansible hosts which need to be backed up.
 - import_tasks: hosts-to-backup.yml
