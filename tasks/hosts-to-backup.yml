@@ -161,7 +161,7 @@
     enabled: "{{ rear_disable_services }}"
     state: stopped
   with_items: "{{ rear_services_to_stop }}"
-  when: rear_services_to_stop | bool
+  when: rear_services_to_stop | length
   tags:
   - never
 
